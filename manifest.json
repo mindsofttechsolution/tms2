@@ -1,0 +1,17 @@
+{
+  "name": "Smart TMS",
+  "short_name": "SmartTMS",
+  "description": "Teacher Management System",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#312e81",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2995/2995456.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

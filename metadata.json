@@ -1,0 +1,8 @@
+{
+  "name": "Smart TMS",
+  "description": "A comprehensive Teacher Management System for GPA calculation, leave record tracking, and AI-powered administrative assistance.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
