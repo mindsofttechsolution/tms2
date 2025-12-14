@@ -2,41 +2,338 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#312e81" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Smart TMS</title>
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="./manifest.json" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Babel for on-the-fly compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
-      body { font-family: 'Inter', sans-serif; background-color: #f8fafc; overscroll-behavior-y: none; }
-      /* Custom scrollbar for chat */
-      .scrollbar-hide::-webkit-scrollbar {
-          display: none;
+      body { 
+        font-family: 'Inter', sans-serif; 
+        background-color: #f8fafc; 
+        overscroll-behavior-y: none; 
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
       }
-      .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-      }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .pb-safe { padding-bottom: env(safe-area-inset-bottom, 20px); }
+      .pt-safe { padding-top: env(safe-area-inset-top, 20px); }
+      
+      /* Animation Utilities */
+      .animate-in { animation: fadeIn 0.3s ease-out; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "recharts": "https://esm.sh/recharts@^3.5.1",
-    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
+    "lucide-react": "https://esm.sh/lucide-react@0.292.0",
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "@google/genai": "https://esm.sh/@google/genai@0.1.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
+    <script>
+      // Polyfill process.env for the browser
+      window.process = { env: { API_KEY: '' } };
+    </script>
 <link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
+
+    <script type="text/babel" data-type="module" data-presets="react,typescript">
+import React, { useState, useRef, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
+import { GoogleGenAI } from "@google/genai";
+import { 
+  LayoutDashboard, Calculator, CalendarDays, Bot, Menu, GraduationCap, 
+  Settings, LogOut, X, Clock, FileText, Users, Send, Image as ImageIcon, 
+  Loader2, AlertCircle, Sparkles, Plus, Trash2, Check, MapPin, 
+  CheckSquare, Camera, FolderOpen, Phone, Search, Pencil, 
+  CheckCircle, XCircle, MessageCircle, Smartphone, Download, BarChart3, 
+  UserCog, User, PhoneCall, DownloadCloud, ArrowLeft
+} from 'lucide-react';
+
+// --- TYPES ---
+enum AppView {
+  DASHBOARD = 'DASHBOARD',
+  GPA = 'GPA',
+  LEAVES = 'LEAVES',
+  AI_ASSIST = 'AI_ASSIST',
+  SCHEDULE = 'SCHEDULE',
+  DOCUMENTS = 'DOCUMENTS',
+  STUDENTS = 'STUDENTS',
+  SETTINGS = 'SETTINGS'
+}
+
+// --- DATA ---
+const MOCK_TASKS = [
+  { id: '1', title: 'Submit Grade 10 Math Marks', completed: false, dueDate: 'Today, 2:00 PM' },
+  { id: '2', title: 'Department Meeting Preparation', completed: false, dueDate: 'Tomorrow, 9:00 AM' },
+];
+
+const LEAVE_HISTORY = [
+  { id: 'l1', type: 'Casual', startDate: '2023-10-05', days: 1, status: 'Approved', reason: 'Personal family matter', approvedBy: 'Mr. Wijesinghe' },
+];
+
+const MOCK_TIMETABLE = [
+  { id: 't1', day: 'Monday', startTime: '07:45', endTime: '08:25', subject: 'Mathematics', grade: '10-A', room: 'Hall 1', color: 'bg-indigo-100 text-indigo-700' },
+  { id: 't2', day: 'Monday', startTime: '08:25', endTime: '09:05', subject: 'Science', grade: '11-B', room: 'Lab 2', color: 'bg-emerald-100 text-emerald-700' },
+];
+
+const MOCK_STUDENTS = [
+  { id: 's1', indexNo: '10234', name: 'Amara Perera', parentName: 'Mr. Sunil Perera', contactNumber: '0771234567', gender: 'Female' },
+  { id: 's2', indexNo: '10235', name: 'Kasun Silva', parentName: 'Mrs. Nirmala Silva', contactNumber: '0719876543', gender: 'Male' },
+];
+
+// --- SERVICES ---
+const chatWithGemini = async (message, base64Image) => {
+  try {
+    const apiKey = window.process.env.API_KEY || localStorage.getItem('tms_api_key') || ''; 
+    if(!apiKey) {
+      return "Please configure your Gemini API Key in Settings to use this feature.";
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const modelId = 'gemini-1.5-flash';
+    
+    let contents = { role: 'user', parts: [] };
+    if (base64Image) {
+      contents.parts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Image } });
+    }
+    contents.parts.push({ text: message });
+
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: [contents],
+      config: { systemInstruction: { parts: [{ text: "You are a helpful school teaching assistant." }] } }
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Gemini Error:", error);
+    return "Service unavailable. Check your API Key or internet connection.";
+  }
+};
+
+const getGradeDetails = (marks) => {
+  if (marks >= 85) return { letter: 'A+', point: 4.0 };
+  if (marks >= 75) return { letter: 'A', point: 4.0 };
+  if (marks >= 65) return { letter: 'B', point: 3.0 };
+  if (marks >= 55) return { letter: 'C', point: 2.0 };
+  if (marks >= 35) return { letter: 'S', point: 1.0 };
+  return { letter: 'F', point: 0.0 };
+};
+
+// --- COMPONENTS ---
+
+const Layout = ({ currentView, setView, teacherName, teacherClass, children }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  
+  const NavItem = ({ view, icon: Icon, label }) => {
+    const isActive = currentView === view;
+    return (
+      <button onClick={() => setView(view)} className={`flex flex-col items-center justify-center w-full py-3 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>
+        <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
+        <span className="text-[10px] mt-1 font-medium">{label}</span>
+      </button>
+    );
+  };
+
+  const DrawerItem = ({ view, icon: Icon, label }) => (
+    <button onClick={() => { setView(view); setIsMenuOpen(false); }} className={`flex items-center gap-3 p-3 rounded-xl font-medium ${currentView === view ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600'}`}>
+      <Icon size={20} /> {label}
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans relative">
+      {isMenuOpen && (
+        <div className="absolute inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)} />
+          <div className="relative w-72 bg-white h-full shadow-2xl p-6 flex flex-col gap-2 animate-in slide-in-from-left">
+              <div className="mb-6 pt-4 border-b pb-6">
+                  <div className="w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl mb-3">
+                      {teacherName.charAt(0)}
+                  </div>
+                  <h2 className="font-bold text-lg">{teacherName}</h2>
+                  <p className="text-xs text-slate-500">Class: {teacherClass}</p>
+              </div>
+              <DrawerItem view={AppView.DASHBOARD} icon={LayoutDashboard} label="Dashboard" />
+              <DrawerItem view={AppView.GPA} icon={Calculator} label="Marks & GPA" />
+              <DrawerItem view={AppView.LEAVES} icon={CalendarDays} label="Leave History" />
+              <DrawerItem view={AppView.SCHEDULE} icon={Clock} label="Timetable" />
+              <DrawerItem view={AppView.DOCUMENTS} icon={FolderOpen} label="Documents" />
+              <DrawerItem view={AppView.STUDENTS} icon={Users} label="My Class" />
+              <DrawerItem view={AppView.SETTINGS} icon={Settings} label="Settings" />
+          </div>
+        </div>
+      )}
+
+      <header className="bg-indigo-900 text-white p-4 pt-safe shadow-md z-20 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-white/10 p-2 rounded-lg"> <GraduationCap size={20} /> </div>
+          <div><h1 className="text-lg font-bold">Smart TMS</h1></div>
+        </div>
+        <button onClick={() => setIsMenuOpen(true)} className="p-2"><Menu size={24} /></button>
+      </header>
+
+      <main className="flex-1 overflow-y-auto relative z-10 scrollbar-hide">
+        {children}
+      </main>
+
+      <nav className="bg-white border-t border-slate-200 pb-safe">
+        <div className="flex justify-around items-center max-w-md mx-auto">
+          <NavItem view={AppView.DASHBOARD} icon={LayoutDashboard} label="Home" />
+          <NavItem view={AppView.STUDENTS} icon={Users} label="Class" />
+          <NavItem view={AppView.DOCUMENTS} icon={FileText} label="Docs" />
+          <NavItem view={AppView.AI_ASSIST} icon={Bot} label="AI" />
+        </div>
+      </nav>
+    </div>
+  );
+};
+
+const AIView = () => {
+  const [messages, setMessages] = useState([{ id: '1', role: 'model', text: 'Hello! I can help you draft letters, summarize notes, or plan lessons.' }]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  const send = async () => {
+    if (!input && !loading) return;
+    const userMsg = { id: Date.now(), role: 'user', text: input };
+    setMessages(p => [...p, userMsg]);
+    setInput('');
+    setLoading(true);
+    const text = await chatWithGemini(userMsg.text);
+    setMessages(p => [...p, { id: Date.now()+1, role: 'model', text }]);
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-slate-100">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map(m => (
+          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`p-3 rounded-2xl max-w-[85%] text-sm ${m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-800 shadow-sm'}`}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {loading && <div className="text-xs text-slate-400 text-center">Thinking...</div>}
+      </div>
+      <div className="p-3 bg-white border-t flex gap-2">
+        <input value={input} onChange={e => setInput(e.target.value)} className="flex-1 bg-slate-100 rounded-full px-4 py-2 text-sm outline-none" placeholder="Ask AI..." />
+        <button onClick={send} className="p-2 bg-indigo-600 rounded-full text-white"><Send size={18} /></button>
+      </div>
+    </div>
+  );
+};
+
+// --- APP ROOT ---
+const App = () => {
+  const [view, setView] = useState(AppView.DASHBOARD);
+  const [teacherName, setTeacherName] = useState(localStorage.getItem('tms_name') || 'Mrs. Perera');
+  const [teacherClass, setTeacherClass] = useState(localStorage.getItem('tms_class') || '10-B');
+  const [tasks, setTasks] = useState(JSON.parse(localStorage.getItem('tms_tasks') || JSON.stringify(MOCK_TASKS)));
+  const [leaves, setLeaves] = useState(JSON.parse(localStorage.getItem('tms_leaves') || JSON.stringify(LEAVE_HISTORY)));
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [newTask, setNewTask] = useState('');
+  const [apiKey, setApiKey] = useState(localStorage.getItem('tms_api_key') || '');
+
+  // Persist
+  useEffect(() => { localStorage.setItem('tms_tasks', JSON.stringify(tasks)); }, [tasks]);
+  useEffect(() => { localStorage.setItem('tms_leaves', JSON.stringify(leaves)); }, [leaves]);
+  useEffect(() => { localStorage.setItem('tms_api_key', apiKey); }, [apiKey]);
+
+  const addTask = () => {
+    if(!newTask) return;
+    setTasks([{id: Date.now(), title: newTask, completed: false, dueDate: 'Today'}, ...tasks]);
+    setNewTask('');
+    setShowTaskForm(false);
+  };
+
+  // Views
+  const Dashboard = () => (
+    <div className="p-4 space-y-6">
+       <div className="bg-indigo-800 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
+          <h2 className="text-2xl font-bold relative z-10">Hello, {teacherName.split(' ')[0]}</h2>
+          <p className="text-indigo-200 text-sm relative z-10 mb-4">{tasks.filter(t=>!t.completed).length} Pending Tasks</p>
+          <div className="flex gap-2 relative z-10">
+            <button onClick={() => setView(AppView.GPA)} className="flex-1 bg-white/10 p-2 rounded-xl text-center backdrop-blur-sm"><Calculator className="mx-auto mb-1 opacity-80" size={20}/><span className="text-[10px]">GPA</span></button>
+            <button onClick={() => setView(AppView.SCHEDULE)} className="flex-1 bg-white/10 p-2 rounded-xl text-center backdrop-blur-sm"><Clock className="mx-auto mb-1 opacity-80" size={20}/><span className="text-[10px]">Time</span></button>
+            <button onClick={() => setView(AppView.LEAVES)} className="flex-1 bg-white/10 p-2 rounded-xl text-center backdrop-blur-sm"><CalendarDays className="mx-auto mb-1 opacity-80" size={20}/><span className="text-[10px]">Leave</span></button>
+          </div>
+       </div>
+
+       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+         <div className="flex justify-between items-center mb-4">
+           <h3 className="font-bold text-slate-700">Quick Tasks</h3>
+           <button onClick={() => setShowTaskForm(true)} className="bg-indigo-50 text-indigo-600 p-2 rounded-full"><Plus size={16}/></button>
+         </div>
+         <div className="space-y-2">
+            {tasks.map(t => (
+              <div key={t.id} onClick={() => setTasks(tasks.map(x => x.id === t.id ? {...x, completed: !x.completed} : x))} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                 <div className={`w-5 h-5 rounded border flex items-center justify-center ${t.completed ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>{t.completed && <Check size={12} className="text-white"/>}</div>
+                 <span className={`text-sm ${t.completed ? 'line-through text-slate-400' : 'text-slate-700'}`}>{t.title}</span>
+              </div>
+            ))}
+         </div>
+       </div>
+       
+       {showTaskForm && (
+         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+           <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+             <h3 className="font-bold mb-4">Add Task</h3>
+             <input autoFocus value={newTask} onChange={e=>setNewTask(e.target.value)} className="w-full border p-3 rounded-xl mb-4" placeholder="Task name..." />
+             <div className="flex gap-2">
+               <button onClick={()=>setShowTaskForm(false)} className="flex-1 py-3 bg-slate-100 rounded-xl font-medium">Cancel</button>
+               <button onClick={addTask} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold">Save</button>
+             </div>
+           </div>
+         </div>
+       )}
+    </div>
+  );
+
+  return (
+    <Layout currentView={view} setView={setView} teacherName={teacherName} teacherClass={teacherClass}>
+       {view === AppView.DASHBOARD && <Dashboard />}
+       {view === AppView.AI_ASSIST && <AIView />}
+       {view === AppView.SETTINGS && (
+         <div className="p-4 space-y-4">
+           <h2 className="text-xl font-bold">Settings</h2>
+           <div className="bg-white p-4 rounded-xl shadow-sm">
+              <label className="text-xs font-bold text-slate-400 uppercase">API Key (Required for AI)</label>
+              <input value={apiKey} onChange={e => setApiKey(e.target.value)} className="w-full mt-2 p-3 bg-slate-50 rounded-xl border" placeholder="Paste Gemini API Key" />
+           </div>
+           <div className="bg-white p-4 rounded-xl shadow-sm">
+              <label className="text-xs font-bold text-slate-400 uppercase">Profile</label>
+              <input value={teacherName} onChange={e => setTeacherName(e.target.value)} className="w-full mt-2 p-3 bg-slate-50 rounded-xl border mb-2" placeholder="Name" />
+              <input value={teacherClass} onChange={e => setTeacherClass(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl border" placeholder="Class" />
+           </div>
+         </div>
+       )}
+       {/* Placeholders for other views to keep code small for single file */}
+       {view === AppView.GPA && <div className="p-10 text-center text-slate-400">GPA Calculator Module</div>}
+       {view === AppView.LEAVES && <div className="p-10 text-center text-slate-400">Leave Management Module</div>}
+       {view === AppView.SCHEDULE && <div className="p-10 text-center text-slate-400">Timetable Module</div>}
+       {view === AppView.DOCUMENTS && <div className="p-10 text-center text-slate-400">Documents Module</div>}
+       {view === AppView.STUDENTS && <div className="p-10 text-center text-slate-400">Student List Module</div>}
+    </Layout>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+    </script>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>
